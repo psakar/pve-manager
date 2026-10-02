@@ -1,0 +1,7 @@
+# Only installed by the pkg.pve-manager.lsbservice build (see debian/rules), which is
+# meant for systemd-free derivatives like Devuan: there are intentionally no
+# systemd units for the init scripts, systemd users get the default build.
+pve-manager: missing-systemd-service-for-init.d-script
+pve-manager: missing-systemd-service-for-init.d-rcS-script
+# registered by update-rc.d in a loop in postinst, which lintian doesn't see
+pve-manager: script-in-etc-init.d-not-registered-via-update-rc.d

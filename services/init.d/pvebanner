@@ -11,6 +11,8 @@
 # LSB counterpart of pvebanner.service: write /etc/issue. getty is started
 # from inittab once the runlevel's scripts are done, so it sees the banner.
 
+. /lib/lsb/init-functions
+
 test -x /usr/bin/pvebanner || exit 0
 
 case "$1" in
