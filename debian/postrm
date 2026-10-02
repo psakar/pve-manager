@@ -7,6 +7,15 @@ case "$1" in
     purge)
 	rm -rf /var/log/pveproxy
 	rm -rf /var/lib/pve-manager
+	# runlevel links of the lsbservice variant's init scripts (the scripts are
+	# conffiles and already gone at this point, as are the systemd units which
+	# postinst uses to tell the variants apart - so go by the running init)
+	if [ ! -d /run/systemd/system ] && command -v update-rc.d >/dev/null; then
+	    for svc in pvedaemon pveproxy spiceproxy pvestatd pvebanner pvescheduler \
+	        pvenetcommit pve-guests pve-sdn-commit pve-firewall-commit; do
+	        update-rc.d "$svc" remove >/dev/null || true
+	    done
+	fi
     ;;
 
     remove|upgrade|failed-upgrade|abort-install|abort-upgrade|disappear)
