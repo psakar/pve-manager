@@ -103,7 +103,7 @@ excalibur package lists.
 
 ### Need init-system work (units and/or code)
 
-None left: all 9 repositories that needed it are in "Done" below. See
+None left: all 10 repositories that needed it are in "Done" below. See
 "Remaining gaps" for what's still open beyond them.
 
 ### Done
@@ -111,11 +111,9 @@ None left: all 9 repositories that needed it are in "Done" below. See
 All on their `feature/init-systems-refactoring` branches; built with their
 `pkg.*.lsbservice` profiles, they ship LSB init scripts instead of the systemd
 units (where they have any), don't call `systemctl` directly anymore, and pass
-lintian in both variants. None was built as a real package yet (Proxmox-only
-build dependencies); the debhelper wiring and lintian were checked with
-packages built from their real debian/rules, init scripts and maintainer
-scripts, the boot/shutdown order of all init scripts together with insserv,
-and the code paths on Devuan with OpenRC.
+lintian in both variants. All were built as real packages and installed
+together with pve-manager on Devuan with OpenRC, see "Build and installation"
+below.
 
 | Repo | Needed packages | Init scripts (replacing units) | systemd use replaced | Commits |
 |---|---|---|---|---|
@@ -125,9 +123,10 @@ and the code paths on Devuan with OpenRC.
 | **pve-container** | `pve-container` | none needed; no pve-container@ units | containers started by `pve-container-supervise` (detached `lxc-start -F`, stderr to `/run/pve/ct-<vmid>.stderr`, restart on reboot from within) where there's no pve-container@ service | `3697063` supervisor + libpve-common-perl (>= 9.2.3), `ba78f1a` profile |
 | **pve-storage** | `libpve-storage-perl` | none | directory storage mounts via `PVE::InitSystem` (mount units or `/etc/fstab`), CephFS via `mount_runtime`; `zfs-import@` only if the init system has it; ESXi FUSE scope stopped via `stop_scope` | `c9556f4` mounts + libpve-common-perl (>= 9.2.3), `0a98c48` ZFS, `9704bf9` ESXi |
 | **pve-firewall** | `pve-firewall` | `pve-firewall` (`PVE_INIT_SCRIPT` marker, legacy iptables alternatives, honors `START_FIREWALL`), `pvefw-logger` | pvefw-logger reload via `try_reload_or_restart_service`; postinst reload on upgrades via invoke-rc.d | `a9faa3d` facade + libpve-common-perl (>= 9.2.3), `f3fdc85` profile + init scripts, `da5c317` lintian |
-| **pve-network** | `libpve-network-perl`, `libpve-network-api-perl` | none; no dnsmasq@ drop-in | frr and faucet via `PVE::InitSystem` (frrinit.sh directly if there's no frr service); per-zone `dnsmasq@<zone>` instances via `PVE::InitSystem`, run by Debian's dnsmasq init script with the zone as instance argument, enabled ones started at boot by pve-common's `pve-service-instances` | `6d8fc74` frr/faucet + libpve-common-perl (>= 9.2.3), `71f11d3` dnsmasq, `aae4068` profile |
+| **pve-network** | `libpve-network-perl`, `libpve-network-api-perl` | none; no dnsmasq@ drop-in | frr and faucet via `PVE::InitSystem` (frrinit.sh directly if there's no frr service); per-zone `dnsmasq@<zone>` instances via `PVE::InitSystem`, run by Debian's dnsmasq init script with the zone as instance argument, enabled ones started at boot by pve-common's `pve-service-instances` | `6d8fc74` frr/faucet + libpve-common-perl (>= 9.2.3), `71f11d3` dnsmasq, `aae4068` profile, `ab67a0d` dnsmasq drop-in install fix |
 | **pve-lxc-syscalld** | `pve-lxc-syscalld` | `pve-lxc-syscalld` (generated from `.init.in` like the unit; returns once the socket listens, creates/removes `/run/pve-lxc-syscalld`) | none needed: `sd_notify` without `NOTIFY_SOCKET` is a no-op | `845e751` profile + init script |
-| **lxc** (lxc-pve) | `lxc-pve` | `lxc` (also loads the AppArmor profiles, unlike upstream's sysvinit script), `lxc-net`, `lxc-monitord` (backgrounded) | none (helpers in `/usr/libexec/lxc` as with systemd) | `c597683` profile + init scripts |
+| **lxc** (lxc-pve) | `lxc-pve` | `lxc` (also loads the AppArmor profiles, unlike upstream's sysvinit script), `lxc-net`, `lxc-monitord` (backgrounded) | none (helpers in `/usr/libexec/lxc` as with systemd) | `c597683` profile + init scripts, `075dd54` lock file fix (see "Remaining gaps") |
+| **ifupdown2** | `ifupdown2` (pve-manager, libpve-network-perl) | `networking` (provides `networking ifupdown`, rcS, `udevadm settle`, honors `/etc/default/networking`, runs `start-networking`) | none; Devuan's own ifupdown2 has no init script, so nothing brought the network up at boot once it replaced ifupdown | `98b2f5c` profile + init script |
 
 libpve-common-perl was bumped to 9.2.3 on its branch (`b935615`) for these
 versioned dependencies; pve-manager depends on it too (`a2253108`). 9.2.3 is a
@@ -195,18 +194,53 @@ plus the `${misc:Pre-Depends}` substvar where it was missing (pve-cluster
   syslog API.
 - **Ceph:** Ceph's packages only ship systemd units; pve-manager's Ceph
   management still uses `systemctl`.
-- **Upstream LXC lock collision:** `/usr/libexec/lxc/lxc-containers` uses
+- **Fixed: LXC lock collision:** `/usr/libexec/lxc/lxc-containers` uses
   `/var/lock/lxc` as lock file if `/var/lock/subsys` doesn't exist, which
-  fails if liblxc already created a directory of that name. That's upstream
-  behavior, `lxc.service` runs the same helper; at boot the directory doesn't
-  exist yet.
-- **Not built for real yet:** the lsbservice variants of all these packages
-  still need to be built for real, in dependency order, and tested together
-  on a Devuan VM (VM and container start/stop/reboot, HA, SDN with DHCP,
-  directory storage creation).
+  fails once liblxc has created a directory of that name, so
+  `/etc/init.d/lxc start` failed after any container had run. The init
+  script now creates `/var/lock/subsys` (lxc `075dd54`).
+- **Rust logging:** `proxmox-log` (in libpve-rs-perl, used by all daemons
+  and CLI tools) prints `Unable to open syslog: …` on every start and logs to
+  stderr instead, which is lost for daemons. See the proxmox-rs analysis;
+  the Perl code's own logging reaches rsyslog.
+- **Not tested yet:** VM and container start/stop/reboot, HA, SDN with
+  DHCP, directory storage creation, and a reboot of the whole system.
 - **No automatic restart:** none of the init scripts restarts a crashed
   daemon, which `Restart=on-failure` units do (could use OpenRC's
   supervise-daemon).
+
+## Build and installation
+
+On a Devuan excalibur laptop with OpenRC, pve-manager was installed with
+everything it needs:
+
+- **Built from the branches**, with `nocheck` and their lsbservice profile:
+  the 10 repositories above plus pve-common and pve-manager, and some
+  Proxmox-only packages without init-system work that their builds needed
+  (web assets, spiceterm, vncterm, …). pve-cluster needs its tests (they
+  generate `IPCC.so`) and `parallel=1`.
+- **Fetched unchanged from download.proxmox.com** (pve-no-subscription,
+  ceph-squid for librados ≥ 19.2, devel for proxmox-biome), after checking
+  the `Release` signatures against the Proxmox trixie key: the rest of the
+  packages in "Packaging/UI only", which don't depend on the init system.
+  Proxmox's systemd packages and the ones we build are pinned out.
+- **Bootstrapping:** pve-cluster's build needs libpve-access-control, which
+  depends on pve-cluster, and pve-firewall and libpve-network-perl depend
+  on each other; both were installed with `dpkg --force-depends` once, then
+  reinstalled cleanly with apt.
+- **Installation side effects:** ifupdown is replaced by ifupdown2, Devuan's
+  lxc and liblxc by lxc-pve. pmxcfs needs the hostname to resolve to a
+  non-loopback address in `/etc/hosts`. Devuan's lxc left its
+  `/etc/init.d/lxc` and `lxc-net` (same paths as lxc-pve's) with mode 644,
+  so they had to be made executable again; a fresh install isn't affected.
+
+Result: `dpkg --audit` is clean. Every daemon runs from its init script under
+OpenRC: pve-cluster, pvedaemon, pveproxy, spiceproxy, pvestatd, pvescheduler,
+pve-firewall, pvefw-logger, pve-ha-crm, pve-ha-lrm, watchdog-mux,
+pve-lxc-syscalld, qmeventd, lxc, lxcfs. The web UI answers on port 8006, and
+the API's service list (`/nodes/<node>/services`) works through
+`PVE::InitSystem`. watchdog-mux holds the hardware watchdog (iTCO_wdt on this
+laptop): if it's killed without a clean stop, the machine resets.
 
 ## Limitations
 
