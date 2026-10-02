@@ -1,0 +1,71 @@
+#!/bin/sh
+### BEGIN INIT INFO
+# Provides:          pve-guests pve-manager
+# Required-Start:    $remote_fs $network $syslog pveproxy pvestatd spiceproxy
+# Required-Stop:     $remote_fs $network $syslog pveproxy pvestatd spiceproxy
+# Should-Start:      pve-firewall lxc pve-ha-crm pve-ha-lrm
+# Should-Stop:       pve-firewall lxc pve-ha-crm pve-ha-lrm
+# Default-Start:     2 3 4 5
+# Default-Stop:      0 6
+# Short-Description: PVE guests
+### END INIT INFO
+
+# LSB counterpart of pve-guests.service: start the guests marked 'onboot'
+# at boot and stop all guests at shutdown.
+#
+# The unit refuses to be stopped manually (RefuseManualStop=), since that
+# would stop all guests. Here, 'stop' does the same by only acting while the
+# system is going down (runlevel 0 or 6); 'force-stop' bypasses that check.
+
+. /lib/lsb/init-functions
+
+STAMP=/run/pve-guests.started
+
+test -x /usr/bin/pvesh || exit 0
+
+stop_guests() {
+    log_action_msg "Stopping all PVE guests"
+    /usr/bin/vzdump -stop || true
+    PVE_LOG_ID=pve-guests /usr/bin/pvesh --nooutput create /nodes/localhost/stopall
+    status=$?
+    rm -f $STAMP
+    return $status
+}
+
+case "$1" in
+    start)
+        [ -e $STAMP ] && exit 0
+        /usr/share/pve-manager/helpers/pve-startall-delay || true
+        log_action_msg "Starting PVE guests marked to start on boot"
+        PVE_LOG_ID=pve-guests /usr/bin/pvesh --nooutput create /nodes/localhost/startall
+        status=$?
+        touch $STAMP
+        exit $status
+        ;;
+    stop)
+        case "$(/sbin/runlevel 2>/dev/null | cut -d' ' -f2)" in
+            0|6)
+                stop_guests
+                ;;
+            *)
+                echo "Refusing to stop all guests outside of shutdown/reboot, use 'force-stop' to do so anyway." >&2
+                exit 1
+                ;;
+        esac
+        ;;
+    force-stop)
+        stop_guests
+        ;;
+    restart|reload|force-reload)
+        echo "Restarting pve-guests is not supported." >&2
+        exit 3
+        ;;
+    status)
+        [ -e $STAMP ] && exit 0
+        exit 3
+        ;;
+    *)
+        echo "Usage: /etc/init.d/pve-guests {start|stop|force-stop|status}" >&2
+        exit 3
+        ;;
+esac

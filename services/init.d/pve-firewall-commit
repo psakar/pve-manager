@@ -1,0 +1,35 @@
+#!/bin/sh
+### BEGIN INIT INFO
+# Provides:          pve-firewall-commit
+# Required-Start:    pve-cluster
+# Required-Stop:
+# Should-Start:      corosync
+# Default-Start:     2 3 4 5
+# Default-Stop:
+# Short-Description: Commit Proxmox VE Firewall changes
+### END INIT INFO
+
+# LSB counterpart of pve-firewall-commit.service.
+
+. /lib/lsb/init-functions
+
+HELPER=/usr/share/pve-manager/helpers/pve-firewall-commit
+
+test -x $HELPER || exit 0
+
+case "$1" in
+    start)
+        log_action_begin_msg "Committing Proxmox VE Firewall changes"
+        $HELPER
+        log_action_end_msg $?
+        ;;
+    stop|restart|reload|force-reload)
+        ;;
+    status)
+        exit 0
+        ;;
+    *)
+        echo "Usage: /etc/init.d/pve-firewall-commit {start|stop|status}" >&2
+        exit 3
+        ;;
+esac

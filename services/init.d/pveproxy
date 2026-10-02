@@ -1,0 +1,59 @@
+#!/bin/sh
+### BEGIN INIT INFO
+# Provides:          pveproxy
+# Required-Start:    $remote_fs $network $syslog pve-cluster pvedaemon
+# Required-Stop:     $remote_fs $network $syslog pve-cluster pvedaemon
+# Should-Start:      ssh open-iscsi iscsid glusterd ceph
+# Should-Stop:       ssh
+# Default-Start:     2 3 4 5
+# Default-Stop:      0 1 6
+# Short-Description: PVE API Proxy Server
+### END INIT INFO
+
+# LSB counterpart of pveproxy.service. The Should-Start storage services
+# replace the unit's ordering after pve-storage.target.
+
+. /lib/lsb/init-functions
+
+NAME=pveproxy
+DESC="PVE API Proxy Server"
+DAEMON=/usr/bin/pveproxy
+PIDFILE=/run/pveproxy/pveproxy.pid
+
+test -x $DAEMON || exit 0
+
+case "$1" in
+    start)
+        # see debian/tmpfiles, /run is a tmpfs
+        install -d -m 0750 -o root -g www-data /run/pve
+        # ExecStartPre= in the unit
+        /usr/bin/pvecm updatecerts --silent || true
+        log_daemon_msg "Starting $DESC" "$NAME"
+        $DAEMON start
+        status=$?
+        log_end_msg $status
+        # ExecStartPost= in the unit, initial download of the appliance index
+        if [ $status -eq 0 ] && [ ! -e /var/log/pveam.log ]; then
+            /usr/bin/pveupdate || true
+        fi
+        exit $status
+        ;;
+    stop)
+        log_daemon_msg "Stopping $DESC" "$NAME"
+        $DAEMON stop
+        log_end_msg $?
+        ;;
+    restart|reload|force-reload)
+        # like ExecReload= in the unit, a graceful re-exec of the daemon
+        log_daemon_msg "Restarting $DESC" "$NAME"
+        $DAEMON restart
+        log_end_msg $?
+        ;;
+    status)
+        status_of_proc -p $PIDFILE $DAEMON $NAME
+        ;;
+    *)
+        echo "Usage: /etc/init.d/$NAME {start|stop|restart|reload|force-reload|status}" >&2
+        exit 3
+        ;;
+esac
