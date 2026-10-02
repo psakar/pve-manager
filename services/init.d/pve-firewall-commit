@@ -21,7 +21,9 @@ case "$1" in
     start)
         log_action_begin_msg "Committing Proxmox VE Firewall changes"
         $HELPER
-        log_action_end_msg $?
+        status=$?
+        log_action_end_msg $status
+        exit $status
         ;;
     stop|restart|reload|force-reload)
         ;;
