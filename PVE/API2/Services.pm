@@ -3,7 +3,7 @@ package PVE::API2::Services;
 use strict;
 use warnings;
 
-use PVE::Tools;
+use PVE::InitSystem;
 use PVE::SafeSyslog;
 use PVE::Cluster;
 use PVE::INotify;
@@ -16,6 +16,10 @@ use IO::File;
 
 use base qw(PVE::RESTHandler);
 
+# Services not provided by the running init system (e.g. systemd-journald under
+# sysvinit/OpenRC) are filtered out by get_service_list, since they have no
+# description. Unit aliases like 'sshd' and 'syslog' are resolved by
+# PVE::InitSystem's backend.
 my $service_name_list = [
     'chrony',
     'corosync',
@@ -57,17 +61,7 @@ my $get_full_service_state = sub {
 
     $service = $unit_extra_names->{$service} if $unit_extra_names->{$service};
 
-    my $res;
-    my $parser = sub {
-        my $line = shift;
-        if ($line =~ m/^([^=\s]+)=(.*)$/) {
-            $res->{$1} = $2;
-        }
-    };
-
-    PVE::Tools::run_command(['systemctl', 'show', $service], outfunc => $parser);
-
-    return $res;
+    return PVE::InitSystem::service_status($service);
 };
 
 my $static_service_list;
@@ -81,8 +75,8 @@ sub get_service_list {
         my $ss = eval { $get_full_service_state->($name) };
         warn $@ if $@;
         next if !$ss;
-        next if !defined($ss->{Description});
-        $list->{$name} = { name => $name, desc => $ss->{Description} };
+        next if !defined($ss->{description});
+        $list->{$name} = { name => $name, desc => $ss->{description} };
     }
 
     $static_service_list = $list;
@@ -99,16 +93,21 @@ my $service_prop_desc = {
 my $service_cmd = sub {
     my ($service, $cmd) = @_;
 
-    my $initd_cmd;
+    my $handler = {
+        start => \&PVE::InitSystem::start_service,
+        stop => \&PVE::InitSystem::stop_service,
+        restart => \&PVE::InitSystem::restart_service,
+        reload => \&PVE::InitSystem::reload_service,
+        'try-reload-or-restart' => \&PVE::InitSystem::try_reload_or_restart_service,
+    }->{$cmd};
 
-    die "unknown service command '$cmd'\n"
-        if $cmd !~ m/^(start|stop|restart|reload|try-reload-or-restart)$/;
+    die "unknown service command '$cmd'\n" if !$handler;
 
     if ($essential_services->{$service} && $cmd eq 'stop') {
         die "invalid service cmd '$service $cmd': refusing to stop essential service!\n";
     }
 
-    PVE::Tools::run_command(['systemctl', $cmd, $service]);
+    $handler->($service);
 };
 
 my $service_state = sub {
@@ -120,19 +119,19 @@ my $service_state = sub {
     if (my $err = $@) {
         return $res;
     }
-    my $state = $ss->{SubState} || 'unknown';
-    if ($state eq 'dead' && $ss->{Type} && $ss->{Type} eq 'oneshot' && $ss->{Result}) {
-        $res->{state} = $ss->{Result};
+    my $state = $ss->{sub_state} || 'unknown';
+    if ($state eq 'dead' && $ss->{type} && $ss->{type} eq 'oneshot' && $ss->{result}) {
+        $res->{state} = $ss->{result};
     } else {
-        $res->{state} = $ss->{SubState} || 'unknown';
+        $res->{state} = $ss->{sub_state} || 'unknown';
     }
 
-    if ($ss->{LoadState} eq 'not-found') {
+    if (($ss->{load_state} // '') eq 'not-found') {
         $res->{'unit-state'} = 'not-found'; # not installed
     } else {
-        $res->{'unit-state'} = $ss->{UnitFileState} || 'unknown';
+        $res->{'unit-state'} = $ss->{unit_state} || 'unknown';
     }
-    $res->{'active-state'} = $ss->{ActiveState} || 'unknown';
+    $res->{'active-state'} = $ss->{active_state} || 'unknown';
 
     return $res;
 };

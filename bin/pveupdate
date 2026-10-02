@@ -14,6 +14,7 @@ use PVE::Cluster::Setup;
 use PVE::Cluster;
 use PVE::DataCenterConfig;
 use PVE::INotify;
+use PVE::InitSystem;
 use PVE::NodeConfig;
 use PVE::RPCEnvironment;
 use PVE::SafeSyslog;
@@ -142,7 +143,7 @@ eval {
         print "Renewed PVE certificate is valid until $expiry\n";
 
         print "Restarting pveproxy after renewing certificate\n";
-        PVE::Tools::run_command(['systemctl', 'reload-or-restart', 'pveproxy']);
+        PVE::InitSystem::restart_service('pveproxy', 1);
     };
 
     my $status = eval { PVE::Cluster::Setup::pve_ssl_cert_status($nodename) };

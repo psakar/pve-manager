@@ -7,6 +7,7 @@ use PVE::API2::ACME;
 use PVE::Certificate;
 use PVE::CertHelpers;
 use PVE::Exception qw(raise_param_exc);
+use PVE::InitSystem;
 use PVE::JSONSchema qw(get_standard_option);
 use PVE::Tools qw(extract_param file_get_contents file_set_contents);
 
@@ -149,7 +150,7 @@ __PACKAGE__->register_method({
 
             if ($param->{restart}) {
                 print "Restarting pveproxy\n";
-                PVE::Tools::run_command(['systemctl', 'reload-or-restart', 'pveproxy']);
+                PVE::InitSystem::restart_service('pveproxy', 1);
             }
         };
 
@@ -198,7 +199,7 @@ __PACKAGE__->register_method({
 
             if ($param->{restart}) {
                 print "Restarting pveproxy\n";
-                PVE::Tools::run_command(['systemctl', 'reload-or-restart', 'pveproxy']);
+                PVE::InitSystem::restart_service('pveproxy', 1);
             }
         };
 
