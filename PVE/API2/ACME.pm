@@ -7,6 +7,7 @@ use PVE::ACME;
 use PVE::CertHelpers;
 use PVE::Certificate;
 use PVE::Exception qw(raise raise_param_exc);
+use PVE::InitSystem;
 use PVE::JSONSchema qw(get_standard_option);
 use PVE::NodeConfig;
 use PVE::Tools qw(extract_param);
@@ -217,7 +218,7 @@ __PACKAGE__->register_method({
                 PVE::CertHelpers::set_cert_files($cert, $key, $cert_prefix, $param->{force});
 
                 print "Restarting pveproxy\n";
-                PVE::Tools::run_command(['systemctl', 'reload-or-restart', 'pveproxy']);
+                PVE::InitSystem::restart_service('pveproxy', 1);
             };
             PVE::CertHelpers::cert_lock(10, $code);
             die "$@\n" if $@;
@@ -300,7 +301,7 @@ __PACKAGE__->register_method({
                 PVE::CertHelpers::set_cert_files($cert, $key, $cert_prefix, 1);
 
                 print "Restarting pveproxy\n";
-                PVE::Tools::run_command(['systemctl', 'reload-or-restart', 'pveproxy']);
+                PVE::InitSystem::restart_service('pveproxy', 1);
             };
             PVE::CertHelpers::cert_lock(10, $code);
             die "$@\n" if $@;
@@ -375,7 +376,7 @@ __PACKAGE__->register_method({
                 unlink "${cert_prefix}.key";
 
                 print "Restarting pveproxy to revert to self-signed certificates\n";
-                PVE::Tools::run_command(['systemctl', 'reload-or-restart', 'pveproxy']);
+                PVE::InitSystem::restart_service('pveproxy', 1);
             };
 
             PVE::CertHelpers::cert_lock(10, $code);

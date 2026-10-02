@@ -15,6 +15,7 @@ use Proxmox::RS::Subscription;
 
 use PVE::Cluster;
 use PVE::INotify;
+use PVE::InitSystem;
 use PVE::JSONSchema qw(get_standard_option);
 use PVE::RPCEnvironment;
 use PVE::SafeSyslog;
@@ -306,9 +307,7 @@ EOF
         unlink $install_flag_fn or warn "could not remove Ceph installation flag - $!";
 
         print "\nreloading API to load new Ceph RADOS library...\n";
-        run_command([
-            'systemctl', 'try-reload-or-restart', 'pvedaemon.service', 'pveproxy.service',
-        ]);
+        PVE::InitSystem::try_reload_or_restart_service('pvedaemon', 'pveproxy');
 
         return undef;
     },

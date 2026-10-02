@@ -25,6 +25,7 @@ use PVE::Firewall;
 use PVE::HA::Config;
 use PVE::HA::Env::PVE2;
 use PVE::INotify;
+use PVE::InitSystem;
 use PVE::JSONSchema qw(get_standard_option);
 use PVE::LXC;
 use PVE::NodeConfig;
@@ -946,23 +947,15 @@ __PACKAGE__->register_method({
         my $rpcenv = PVE::RPCEnvironment::get();
         my $user = $rpcenv->get_user();
         my $node = $param->{node};
-        my $service;
 
-        if ($param->{service}) {
-            my $service_aliases = {
-                'postfix' => 'postfix@-',
-                'sshd' => 'ssh',
-            };
-
-            $service = $service_aliases->{ $param->{service} } // $param->{service};
-        }
-
-        my ($count, $lines) = PVE::Tools::dump_journal(
+        # service names that log under a different unit/tag (sshd, postfix) are
+        # resolved by the init-system backend
+        my ($count, $lines) = PVE::InitSystem::dump_syslog(
             $param->{start},
             $param->{limit},
             $param->{since},
             $param->{until},
-            $service,
+            $param->{service},
         );
 
         $rpcenv->set_result_attrib('total', $count);
@@ -1084,6 +1077,14 @@ __PACKAGE__->register_method({
 
         my $rpcenv = PVE::RPCEnvironment::get();
         my $user = $rpcenv->get_user();
+
+        # only exists with systemd's journal, not in the pkg.pve-manager.lsbservice
+        # build (e.g. for Devuan), where the system log is only available via the
+        # syslog endpoint
+        raise(
+            "reading the journal is not available on this node, use the syslog API instead\n",
+            code => HTTP_NOT_IMPLEMENTED,
+        ) if !-x '/usr/bin/mini-journalreader';
 
         my $cmd = ["/usr/bin/mini-journalreader", $param->{structured} ? "-J" : "-j"];
         push @$cmd, '-n', $param->{lastentries} if $param->{lastentries};
@@ -1692,7 +1693,7 @@ __PACKAGE__->register_method({
         my $ctime = time();
         my $ltime = timegm_nocheck(localtime($ctime));
         my $res = {
-            timezone => PVE::Systemd::get_timezone(),
+            timezone => PVE::InitSystem::get_timezone(),
             time => $ctime,
             localtime => $ltime,
         };
@@ -1726,7 +1727,7 @@ __PACKAGE__->register_method({
     code => sub {
         my ($param) = @_;
 
-        PVE::Systemd::set_timezone($param->{timezone});
+        PVE::InitSystem::set_timezone($param->{timezone});
 
         return;
     },
