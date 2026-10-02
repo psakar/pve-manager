@@ -1,0 +1,8 @@
+# LSB/cron counterpart of pve-daily-update.timer: run pveupdate daily at 1:00,
+# delayed by up to 5 hours (RandomizedDelaySec=5h) to spread the load on the
+# download servers. Unlike the timer (Persistent=true), a run missed because
+# the node was down isn't caught up on.
+SHELL=/bin/sh
+PATH=/usr/sbin:/usr/bin:/sbin:/bin
+
+0 1 * * * root [ -x /usr/bin/pveupdate ] && sleep $(shuf -i 0-18000 -n 1) && /usr/bin/pveupdate 2>&1 | logger -t pve-daily-update

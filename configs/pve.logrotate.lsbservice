@@ -1,0 +1,16 @@
+/var/log/pveproxy/access.log {
+        rotate 7
+        daily
+	missingok
+	compress
+	delaycompress
+	notifempty
+	create 640 www-data www-data
+	sharedscripts
+	postrotate
+		# like 'systemctl try-reload-or-restart': only reload running proxies
+		for svc in pveproxy spiceproxy; do
+			/usr/sbin/service $svc status >/dev/null 2>&1 && /usr/sbin/service $svc reload >/dev/null || true
+		done
+	endscript
+}

@@ -1,0 +1,29 @@
+#!/bin/sh
+### BEGIN INIT INFO
+# Provides:          pvebanner
+# Required-Start:    $local_fs
+# Required-Stop:
+# Default-Start:     2 3 4 5
+# Default-Stop:
+# Short-Description: Proxmox VE Login Banner
+### END INIT INFO
+
+# LSB counterpart of pvebanner.service: write /etc/issue. getty is started
+# from inittab once the runlevel's scripts are done, so it sees the banner.
+
+test -x /usr/bin/pvebanner || exit 0
+
+case "$1" in
+    start|restart|reload|force-reload)
+        /usr/bin/pvebanner
+        ;;
+    stop)
+        ;;
+    status)
+        exit 0
+        ;;
+    *)
+        echo "Usage: /etc/init.d/pvebanner {start|stop|status}" >&2
+        exit 3
+        ;;
+esac

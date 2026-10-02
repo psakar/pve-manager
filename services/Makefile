@@ -36,9 +36,24 @@ install-systemd: $(SERVICES)
 	install -d $(SERVICEDIR)/ceph-mds@.service.d
 	install -m 0644 ceph-after-pve-cluster.conf $(SERVICEDIR)/ceph-mds@.service.d
 
-# LSB init scripts are added separately
+INIT_SCRIPTS=			\
+	pvebanner		\
+	pvenetcommit		\
+	pvestatd		\
+	pve-guests		\
+	pvedaemon		\
+	pveproxy		\
+	spiceproxy		\
+	pvescheduler		\
+	pve-sdn-commit		\
+	pve-firewall-commit
+
+# LSB init scripts (sysvinit, OpenRC) and a cron job replacing the timer
 .PHONY: install-lsbservice
-install-lsbservice:
+install-lsbservice: $(addprefix init.d/,$(INIT_SCRIPTS)) pve-daily-update.cron
+	install -d $(INITDBINDIR)
+	install -m 0755 $(addprefix init.d/,$(INIT_SCRIPTS)) $(INITDBINDIR)
+	install -D -m 0644 pve-daily-update.cron $(CRONDIR)/pve-daily-update
 
 .PHONY: clean
 clean:

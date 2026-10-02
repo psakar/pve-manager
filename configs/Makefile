@@ -2,9 +2,15 @@ include ../defines.mk
 
 all:
 
+ifeq ($(PVE_INIT_SYSTEM),lsbservice)
+LOGROTATE=pve.logrotate.lsbservice
+else
+LOGROTATE=pve.logrotate
+endif
+
 .PHONY: install
-install: vzdump.conf pve-sources.sources pve-initramfs.conf pve-blacklist.conf pve.logrotate virtual-function-pinning.rules virtual-function-pinning-helper
-	install -D -m 0644 pve.logrotate $(DESTDIR)/etc/logrotate.d/pve
+install: vzdump.conf pve-sources.sources pve-initramfs.conf pve-blacklist.conf $(LOGROTATE) virtual-function-pinning.rules virtual-function-pinning-helper
+	install -D -m 0644 $(LOGROTATE) $(DESTDIR)/etc/logrotate.d/pve
 	install -D -m 0644 pve-sources.sources $(DESTDIR)/etc/apt/sources.list.d/pve-enterprise.sources
 	install -D -m 0644 pve-blacklist.conf $(DESTDIR)/etc/modprobe.d/pve-blacklist.conf
 	install -D -m 0644 vzdump.conf $(DESTDIR)/etc/vzdump.conf

@@ -1,0 +1,36 @@
+#!/bin/sh
+### BEGIN INIT INFO
+# Provides:          pvenetcommit
+# Required-Start:    $local_fs
+# Required-Stop:
+# X-Start-Before:    networking ifupdown openvswitch-switch
+# Default-Start:     S
+# Default-Stop:
+# Short-Description: Commit Proxmox VE network changes
+### END INIT INFO
+
+# LSB counterpart of pvenetcommit.service: activate pending network
+# configuration changes before the network is brought up.
+
+. /lib/lsb/init-functions
+
+FN=/etc/network/interfaces
+
+case "$1" in
+    start)
+        rm -f /etc/openvswitch/conf.db
+        if [ -f "$FN.new" ]; then
+            log_action_msg "Committing pending network configuration changes"
+            mv "$FN.new" "$FN"
+        fi
+        ;;
+    stop|restart|reload|force-reload)
+        ;;
+    status)
+        exit 0
+        ;;
+    *)
+        echo "Usage: /etc/init.d/pvenetcommit {start|stop|status}" >&2
+        exit 3
+        ;;
+esac
