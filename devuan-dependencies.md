@@ -57,9 +57,14 @@ excalibur package lists.
    running VM's CPU limit/units over D-Bus), which died with "Undefined
    subroutine", under systemd too. pve-common `af6e7d7` restores it as a
    wrapper around `PVE::InitSystem::Systemd::systemd_call`; with the
-   LSBService backend it dies with a clear error instead. Still open, as part
-   of blocker 4: a facade-based way for qemu-server to change the properties
-   of a running VM's scope, so that this also works without systemd.
+   LSBService backend it dies with a clear error instead. qemu-server no
+   longer uses it: it changes a running VM's CPU limit and weight via the new
+   `PVE::InitSystem::set_scope_properties` (pve-common `b5de93e`, qemu-server
+   `545872a`), which also works without systemd.
+   The same facade commit also broke `PVE::Systemd::wait_for_unit_removed`
+   and `is_unit_active`, again under systemd too: they passed the number of
+   arguments instead of the arguments (prototype), so qemu-server didn't
+   wait for a VM's old scope to be gone. Fixed in pve-common `e7b30ff`.
 3. **Containers are started as systemd units:** pve-container runs
    `systemctl start pve-container@<vmid>` (`src/PVE/LXC.pm:3188`). The unit
    runs `lxc-start -F` with `Delegate=yes`, `KillMode=mixed` and stderr
@@ -70,8 +75,11 @@ excalibur package lists.
    qemu-server stops `<vmid>.scope` and `pve-dbus-vmstate@<vmid>.service` via
    `systemctl` (`src/PVE/QemuServer.pm:5704-5712`), and starts the D-Bus VM
    state helper as a `Type=notify` unit that is `PartOf=` the VM's scope
-   (`src/PVE/QemuServer/DBusVMState.pm:71`). The scope creation itself already
-   goes through `PVE::Systemd::enter_systemd_scope` and thus the facade.
+   (`src/PVE/QemuServer/DBusVMState.pm:71`). Done: creating the scope goes
+   through the facade (`PVE::Systemd::enter_systemd_scope`), the LSBService
+   backend now honors its `Slice=qemu.slice`, so the VM's cgroup is at
+   `qemu.slice/<vmid>.scope` as qemu-server expects (pve-common `cfababb`),
+   and changing its CPU limit/weight goes through the facade too (see 2).
 5. **Storage creates systemd mount and import units:** pve-storage's disk API
    writes `/etc/systemd/system/*.mount` units for directory storages and
    enables them (`src/PVE/API2/Disks/Directory.pm:216-401`), and enables
@@ -96,7 +104,7 @@ excalibur package lists.
 | Repo | Needed packages (required by) | systemd units shipped | Direct systemd use | Work |
 |---|---|---|---|---|
 | **pve-container** | `pve-container` (pve-manager, pve-ha-manager) | `pve-container@.service`, `pve-container-debug@.service` (templated, one per CT) | `LXC.pm` (start via unit), `LXC/Setup.pm` (`PVE::Systemd::get_timezone`, already a facade wrapper) | **blocker 3** |
-| **qemu-server** | `qemu-server` (pve-manager, pve-ha-manager) | `qmeventd.service`, `pve-query-machine-capabilities.service`, `pve-dbus-vmstate@.service` | `QemuServer.pm`, `CGroup.pm`, `DBusVMState.pm`, `CPUConfig.pm` | **blocker 4** (incl. changing scope properties without systemd, see 2); init script for qmeventd, one-shot for machine capabilities |
+| **qemu-server** | `qemu-server` (pve-manager, pve-ha-manager) | `qmeventd.service`, `pve-query-machine-capabilities.service`, `pve-dbus-vmstate@.service` | `QemuServer.pm`, `CGroup.pm`, `DBusVMState.pm`, `CPUConfig.pm` | **blocker 4** (scope properties done, see 2); stopping the scope and the D-Bus VM state helper, init script for qmeventd, one-shot for machine capabilities |
 | **pve-storage** | `libpve-storage-perl` (most PVE packages) | — | `API2/Disks/Directory.pm`, `API2/Disks/ZFS.pm` (mount/import units) | **blocker 5** (only the disk-management API; using existing storages is unaffected) |
 | **pve-firewall** | `pve-firewall` (pve-manager, pve-container, qemu-server, libpve-network-api-perl) | `pve-firewall.service`, `pvefw-logger.service` | `debian/postinst` (deb-systemd-*), `Firewall.pm` (reload pvefw-logger) | profile, 2 init scripts, postinst, facade call |
 | **pve-network** | `libpve-network-perl`, `libpve-network-api-perl` (pve-manager, pve-firewall) | drop-in `dnsmasq@.service.d/00-dnsmasq-after-networking.conf` | `SDN/Frr.pm`, `SDN/Dhcp/Dnsmasq.pm` (per-zone `dnsmasq@<zone>` instances), `SDN/Controllers/FaucetPlugin.pm` | facade calls; dnsmasq instances need an init-script equivalent (only with SDN DHCP) |
