@@ -18,7 +18,11 @@ SERVICES=			\
 	pve-firewall-commit.service
 
 .PHONY: install
-install: $(SERVICES)
+install: install-$(PVE_INIT_SYSTEM)
+	install -d $(DESTDIR)/usr/share/doc/$(PACKAGE)/examples/
+
+.PHONY: install-systemd
+install-systemd: $(SERVICES)
 	install -d $(SERVICEDIR)
 	install -m 0644 $(SERVICES) $(SERVICEDIR)
 	install -d $(SERVICEDIR)/ceph-.service.d
@@ -27,7 +31,10 @@ install: $(SERVICES)
 	install -m 0644 ceph-after-pve-cluster.conf $(SERVICEDIR)/rbdmap.service.d
 	install -d $(SERVICEDIR)/cephfs-mirror@.service.d
 	install -m 0644 ceph-after-pve-cluster.conf $(SERVICEDIR)/cephfs-mirror@.service.d
-	install -d $(DESTDIR)/usr/share/doc/$(PACKAGE)/examples/
+
+# LSB init scripts are added separately
+.PHONY: install-lsbservice
+install-lsbservice:
 
 .PHONY: clean
 clean:

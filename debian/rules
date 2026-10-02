@@ -3,6 +3,19 @@
 include debian/rules.env
 export REPOID=${REPOID_GENERATED}
 
+# Select which init system pve-manager's services are integrated with (see
+# the PVE_INIT_SYSTEM variable in defines.mk) based on whether the
+# pkg.pve-manager.lsbservice build profile is active. This is primarily for
+# Devuan and other systemd-free Debian derivatives and needs a
+# libpve-common-perl built with its pkg.pve-common.lsbservice profile at
+# runtime; to build this variant, run:
+#   dpkg-buildpackage -b -us -uc -Ppkg.pve-manager.lsbservice
+ifneq (,$(filter pkg.pve-manager.lsbservice,$(DEB_BUILD_PROFILES)))
+export PVE_INIT_SYSTEM = lsbservice
+else
+export PVE_INIT_SYSTEM = systemd
+endif
+
 %:
 	dh $@
 
