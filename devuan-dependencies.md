@@ -65,12 +65,12 @@ excalibur package lists.
    and `is_unit_active`, again under systemd too: they passed the number of
    arguments instead of the arguments (prototype), so qemu-server didn't
    wait for a VM's old scope to be gone. Fixed in pve-common `e7b30ff`.
-3. **Containers are started as systemd units:** pve-container runs
-   `systemctl start pve-container@<vmid>` (`src/PVE/LXC.pm:3188`). The unit
-   runs `lxc-start -F` with `Delegate=yes`, `KillMode=mixed` and stderr
-   redirected to `/run/pve/ct-<vmid>.stderr`. Under LSB this needs a
-   replacement, e.g. running `lxc-start` daemonized directly, with a cgroup set
-   up like the LSBService scopes.
+3. **Fixed: containers are started as systemd units:** pve-container ran
+   `systemctl start pve-container@<vmid>` (`src/PVE/LXC.pm:3188`), whose unit
+   runs `lxc-start -F` with stderr in `/run/pve/ct-<vmid>.stderr`, and whose
+   stop wrapper restarts a container rebooted from within. Without those
+   services, `pve-container-supervise` now does the same (pve-container
+   `3697063`).
 4. **Fixed: VM processes rely on systemd scopes and units beyond the facade:**
    qemu-server stopped `<vmid>.scope` and reset `pve-dbus-vmstate@<vmid>.service`
    via `systemctl` (`src/PVE/QemuServer.pm:5704-5712`), and started the D-Bus
@@ -82,12 +82,14 @@ excalibur package lists.
    `pve-dbus-vmstate@` service, the helper is started directly in its own
    scope in `qemu.slice`, waiting for its `READY=1` on a notify socket of
    qemu-server's (qemu-server `0806802`).
-5. **Storage creates systemd mount and import units:** pve-storage's disk API
-   writes `/etc/systemd/system/*.mount` units for directory storages and
-   enables them (`src/PVE/API2/Disks/Directory.pm:216-401`), and enables
-   `zfs-import@<pool>.service` for new ZFS pools (`src/PVE/API2/Disks/ZFS.pm:513-625`).
-   Under LSB these would need `/etc/fstab` entries and ZFS's own import
-   mechanism (`zfs-import-cache`/`zfs-import-scan` init scripts) instead.
+5. **Fixed: storage creates systemd mount and import units:** pve-storage's
+   disk API wrote `/etc/systemd/system/*.mount` units for directory storages
+   (`src/PVE/API2/Disks/Directory.pm`) and enabled `zfs-import@<pool>.service`
+   for new ZFS pools (`src/PVE/API2/Disks/ZFS.pm`). Mounts now go through
+   pve-common's new `PVE::InitSystem` mount functions, which keep writing the
+   same mount units with systemd and use `/etc/fstab` entries otherwise
+   (pve-common `86e4060`, pve-storage `c9556f4`); the ZFS import units are only
+   touched if the init system has them (pve-storage `0a98c48`).
 6. **Fixed: HA shutdown detection reads systemd's job queue:** pve-ha-manager
    decides between shutdown and reboot from `systemctl --full list-jobs`
    (`src/PVE/HA/Env/PVE2.pm:132`). If not booted with systemd, it now uses the
@@ -101,37 +103,48 @@ excalibur package lists.
 
 ### Need init-system work (units and/or code)
 
-6 repositories left; pve-cluster, pve-ha-manager and qemu-server moved to "Done"
-below.
-
-| Repo | Needed packages (required by) | systemd units shipped | Direct systemd use | Work |
-|---|---|---|---|---|
-| **pve-container** | `pve-container` (pve-manager, pve-ha-manager) | `pve-container@.service`, `pve-container-debug@.service` (templated, one per CT) | `LXC.pm` (start via unit), `LXC/Setup.pm` (`PVE::Systemd::get_timezone`, already a facade wrapper) | **blocker 3** |
-| **pve-storage** | `libpve-storage-perl` (most PVE packages) | — | `API2/Disks/Directory.pm`, `API2/Disks/ZFS.pm` (mount/import units) | **blocker 5** (only the disk-management API; using existing storages is unaffected) |
-| **pve-firewall** | `pve-firewall` (pve-manager, pve-container, qemu-server, libpve-network-api-perl) | `pve-firewall.service`, `pvefw-logger.service` | `debian/postinst` (deb-systemd-*), `Firewall.pm` (reload pvefw-logger) | profile, 2 init scripts, postinst, facade call |
-| **pve-network** | `libpve-network-perl`, `libpve-network-api-perl` (pve-manager, pve-firewall) | drop-in `dnsmasq@.service.d/00-dnsmasq-after-networking.conf` | `SDN/Frr.pm`, `SDN/Dhcp/Dnsmasq.pm` (per-zone `dnsmasq@<zone>` instances), `SDN/Controllers/FaucetPlugin.pm` | facade calls; dnsmasq instances need an init-script equivalent (only with SDN DHCP) |
-| **pve-lxc-syscalld** | `pve-lxc-syscalld` (pve-container) | `pve-lxc-syscalld.service` (from `.service.in`, `Type=notify`, `RuntimeDirectory=`) | `src/main.rs`: `sd_notify` | init script creating `/run/pve-lxc-syscalld`; `sd_notify` without `NOTIFY_SOCKET` should be a no-op, to verify |
-| **lxc** (lxc-pve) | `lxc-pve` (pve-container) | upstream lxc's `lxc.service`, `lxc-monitord.service`, `lxc-net.service` (installed via `dh_installsystemd` in `debian/rules`) | upstream (submodule, not analysed) | ship upstream lxc's sysvinit scripts (`config/init/sysvinit/`), like Debian's `lxc` package does |
+None left: all 9 repositories that needed it are in "Done" below. See
+"Remaining gaps" for what's still open beyond them.
 
 ### Done
 
 All on their `feature/init-systems-refactoring` branches; built with their
 `pkg.*.lsbservice` profiles, they ship LSB init scripts instead of the systemd
-units and don't call `systemctl` directly anymore. None was built as a real
-package yet (Proxmox-only build dependencies); the debhelper wiring was checked
-with dummy packages, the boot/shutdown order with insserv, and the code paths
-on Devuan with OpenRC.
+units (where they have any), don't call `systemctl` directly anymore, and pass
+lintian in both variants. None was built as a real package yet (Proxmox-only
+build dependencies); the debhelper wiring and lintian were checked with
+packages built from their real debian/rules, init scripts and maintainer
+scripts, the boot/shutdown order of all init scripts together with insserv,
+and the code paths on Devuan with OpenRC.
 
 | Repo | Needed packages | Init scripts (replacing units) | systemd use replaced | Commits |
 |---|---|---|---|---|
 | **pve-cluster** | `pve-cluster`, `libpve-cluster-perl`, `libpve-cluster-api-perl`, `libpve-notify-perl` | `pve-cluster` (pmxcfs; before corosync and cron, stops after corosync) | cluster create/join and service reloads via `PVE::InitSystem`; `pvecm` QDevice commands on remote nodes check for systemd themselves, `service`/`update-rc.d` otherwise | `9bf237a` profile, `176a7e3` init script, `ecbaca1` systemctl, `17590fe` libpve-common-perl (>= 9.2.3) |
 | **pve-ha-manager** | `pve-ha-manager` | `watchdog-mux` (backgrounded, output to `/var/log/watchdog-mux.log` with logrotate `copytruncate`, OOM score -1000), `pve-ha-crm`, `pve-ha-lrm` (`PVE_INIT_SCRIPT` marker) | shutdown/reboot detection via runlevel (blocker 6); watchdog-mux falls back to `sync()` without `journalctl --sync`; trigger restarts via `invoke-rc.d` | `36c292f` profile, `bccf1cd` init scripts, `a0c7c2c` systemd tools, `2f870f4` libpve-common-perl (>= 9.2.3), `3431f27` logrotate |
 | **qemu-server** | `qemu-server` | `qmeventd` (found by executable, no pid file; stops after pve-ha-lrm/pve-guests), `pve-query-machine-capabilities` (one-shot at boot, also creates `/run/qemu-server`); no `pve-dbus-vmstate@` unit | VM CPU limit/weight via `set_scope_properties`; leftover scope cleanup via `reset_failed`/`stop_scope`; dbus-vmstate helper started directly in its own scope with `Type=notify`-style readiness; units only installed for systemd (`PVE_INIT_SYSTEM`) | `545872a` CPU limit/weight + libpve-common-perl (>= 9.2.3), `17a759e` scope cleanup, `0806802` dbus-vmstate helper, `0fdd2f2` profile + init scripts |
+| **pve-container** | `pve-container` | none needed; no pve-container@ units | containers started by `pve-container-supervise` (detached `lxc-start -F`, stderr to `/run/pve/ct-<vmid>.stderr`, restart on reboot from within) where there's no pve-container@ service | `3697063` supervisor + libpve-common-perl (>= 9.2.3), `ba78f1a` profile |
+| **pve-storage** | `libpve-storage-perl` | none | directory storage mounts via `PVE::InitSystem` (mount units or `/etc/fstab`), CephFS via `mount_runtime`; `zfs-import@` only if the init system has it; ESXi FUSE scope stopped via `stop_scope` | `c9556f4` mounts + libpve-common-perl (>= 9.2.3), `0a98c48` ZFS, `9704bf9` ESXi |
+| **pve-firewall** | `pve-firewall` | `pve-firewall` (`PVE_INIT_SCRIPT` marker, legacy iptables alternatives, honors `START_FIREWALL`), `pvefw-logger` | pvefw-logger reload via `try_reload_or_restart_service`; postinst reload on upgrades via invoke-rc.d | `a9faa3d` facade + libpve-common-perl (>= 9.2.3), `f3fdc85` profile + init scripts, `da5c317` lintian |
+| **pve-network** | `libpve-network-perl`, `libpve-network-api-perl` | none; no dnsmasq@ drop-in | frr and faucet via `PVE::InitSystem` (frrinit.sh directly if there's no frr service); per-zone `dnsmasq@<zone>` instances via `PVE::InitSystem`, run by Debian's dnsmasq init script with the zone as instance argument, enabled ones started at boot by pve-common's `pve-service-instances` | `6d8fc74` frr/faucet + libpve-common-perl (>= 9.2.3), `71f11d3` dnsmasq, `aae4068` profile |
+| **pve-lxc-syscalld** | `pve-lxc-syscalld` | `pve-lxc-syscalld` (generated from `.init.in` like the unit; returns once the socket listens, creates/removes `/run/pve-lxc-syscalld`) | none needed: `sd_notify` without `NOTIFY_SOCKET` is a no-op | `845e751` profile + init script |
+| **lxc** (lxc-pve) | `lxc-pve` | `lxc` (also loads the AppArmor profiles, unlike upstream's sysvinit script), `lxc-net`, `lxc-monitord` (backgrounded) | none (helpers in `/usr/libexec/lxc` as with systemd) | `c597683` profile + init scripts |
 
 libpve-common-perl was bumped to 9.2.3 on its branch (`b935615`) for these
 versioned dependencies; pve-manager depends on it too (`a2253108`). 9.2.3 is a
 local version number, an upstream 9.2.3 without these changes would satisfy
-the dependencies as well.
+the dependencies as well. Its `PVE::InitSystem` gained, along the way: scope
+placement in the requested slice (`cfababb`), `set_scope_properties`
+(`b5de93e`), `stop_scope`/`reset_failed` (`6f414bb`), mount management
+(`86e4060`), template service instances with the `pve-service-instances`
+boot script (`683877a`), and a `force-reload` fallback for init scripts
+without `reload` (`99f9770`).
+
+Follow-ups in repositories done earlier: lintian overrides for the init
+scripts without units, as lintian errors would fail the lsbservice builds,
+plus the `${misc:Pre-Depends}` substvar where it was missing (pve-cluster
+`fa1d281`, pve-ha-manager `70fb528`, qemu-server `ec58e7d`, pve-manager
+`970115ef`), and exiting with the helpers' status in one-shot init scripts
+(pve-manager `a711b25c`, qemu-server `15bd67d`).
 
 ### Packaging/UI only, or no init-system dependency
 
@@ -171,15 +184,29 @@ the dependencies as well.
 `proxmox-firewall` (daemon with a systemd unit), `proxmox-offline-mirror-helper`,
 `pve-nvidia-vgpu-helper`, all Proxmox-only; `skopeo` is in Devuan.
 
-## Suggested order
+## Remaining gaps
 
-1. Fix the pve-common regression (2): done, `PVE::Systemd::systemd_call` is restored.
-2. Build the 26 repos without init-system work (the "Packaging/UI only" table); pve-common and proxmox-perl-rs are already done.
-3. pve-cluster and pve-ha-manager (blocker 1): done, build them with their
-   lsbservice profiles.
-4. pve-firewall, pve-lxc-syscalld, lxc-pve: services needed at boot.
-5. qemu-server (4): done; pve-container (3): running containers.
-6. pve-storage (5), pve-network SDN.
+- **FRR at boot:** Debian's (and Devuan's) `frr` package ships only systemd
+  units, not their `frrinit.sh` as an init script. Without systemd, pve-network
+  restarts FRR via `frrinit.sh` directly and warns, but nothing starts FRR at
+  boot. That's for the `frr` packaging (Proxmox ships its own frr build).
+- **Journal views:** the web UI's and mobile UI's journal views need the
+  journal API, which returns 501 without systemd; they should fall back to the
+  syslog API.
+- **Ceph:** Ceph's packages only ship systemd units; pve-manager's Ceph
+  management still uses `systemctl`.
+- **Upstream LXC lock collision:** `/usr/libexec/lxc/lxc-containers` uses
+  `/var/lock/lxc` as lock file if `/var/lock/subsys` doesn't exist, which
+  fails if liblxc already created a directory of that name. That's upstream
+  behavior, `lxc.service` runs the same helper; at boot the directory doesn't
+  exist yet.
+- **Not built for real yet:** the lsbservice variants of all these packages
+  still need to be built for real, in dependency order, and tested together
+  on a Devuan VM (VM and container start/stop/reboot, HA, SDN with DHCP,
+  directory storage creation).
+- **No automatic restart:** none of the init scripts restarts a crashed
+  daemon, which `Restart=on-failure` units do (could use OpenRC's
+  supervise-daemon).
 
 ## Limitations
 
