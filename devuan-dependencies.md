@@ -50,14 +50,16 @@ excalibur package lists.
    `pkg.pve-ha-manager.lsbservice` (pve-ha-manager `36c292f`). With them, the
    closure no longer contains `systemd`. Both repos are now done, see the
    "Done" table below.
-2. **Regression on the pve-common `feature/init-systems-refactoring` branch,
-   independent of Devuan:** commit `007a738` ("Extract PVE::InitSystem facade")
-   removed `PVE::Systemd::systemd_call`. qemu-server still calls it
+2. **Fixed: regression on the pve-common `feature/init-systems-refactoring`
+   branch, independent of Devuan:** commit `007a738` ("Extract PVE::InitSystem
+   facade") removed `PVE::Systemd::systemd_call`. qemu-server still calls it
    (`src/PVE/QemuServer/CGroup.pm:25`, `set_unit_properties`, used to change a
-   running VM's CPU limit/units over D-Bus), which now dies with "Undefined
-   subroutine", **under systemd too**. Fix: restore it in `PVE::Systemd` as a
-   wrapper around `PVE::InitSystem::Systemd::systemd_call`, and give qemu-server
-   a facade-based way to change scope properties.
+   running VM's CPU limit/units over D-Bus), which died with "Undefined
+   subroutine", under systemd too. pve-common `af6e7d7` restores it as a
+   wrapper around `PVE::InitSystem::Systemd::systemd_call`; with the
+   LSBService backend it dies with a clear error instead. Still open, as part
+   of blocker 4: a facade-based way for qemu-server to change the properties
+   of a running VM's scope, so that this also works without systemd.
 3. **Containers are started as systemd units:** pve-container runs
    `systemctl start pve-container@<vmid>` (`src/PVE/LXC.pm:3188`). The unit
    runs `lxc-start -F` with `Delegate=yes`, `KillMode=mixed` and stderr
@@ -94,7 +96,7 @@ excalibur package lists.
 | Repo | Needed packages (required by) | systemd units shipped | Direct systemd use | Work |
 |---|---|---|---|---|
 | **pve-container** | `pve-container` (pve-manager, pve-ha-manager) | `pve-container@.service`, `pve-container-debug@.service` (templated, one per CT) | `LXC.pm` (start via unit), `LXC/Setup.pm` (`PVE::Systemd::get_timezone`, already a facade wrapper) | **blocker 3** |
-| **qemu-server** | `qemu-server` (pve-manager, pve-ha-manager) | `qmeventd.service`, `pve-query-machine-capabilities.service`, `pve-dbus-vmstate@.service` | `QemuServer.pm`, `CGroup.pm`, `DBusVMState.pm`, `CPUConfig.pm` | **regression 2**, **blocker 4**; init script for qmeventd, one-shot for machine capabilities |
+| **qemu-server** | `qemu-server` (pve-manager, pve-ha-manager) | `qmeventd.service`, `pve-query-machine-capabilities.service`, `pve-dbus-vmstate@.service` | `QemuServer.pm`, `CGroup.pm`, `DBusVMState.pm`, `CPUConfig.pm` | **blocker 4** (incl. changing scope properties without systemd, see 2); init script for qmeventd, one-shot for machine capabilities |
 | **pve-storage** | `libpve-storage-perl` (most PVE packages) | — | `API2/Disks/Directory.pm`, `API2/Disks/ZFS.pm` (mount/import units) | **blocker 5** (only the disk-management API; using existing storages is unaffected) |
 | **pve-firewall** | `pve-firewall` (pve-manager, pve-container, qemu-server, libpve-network-api-perl) | `pve-firewall.service`, `pvefw-logger.service` | `debian/postinst` (deb-systemd-*), `Firewall.pm` (reload pvefw-logger) | profile, 2 init scripts, postinst, facade call |
 | **pve-network** | `libpve-network-perl`, `libpve-network-api-perl` (pve-manager, pve-firewall) | drop-in `dnsmasq@.service.d/00-dnsmasq-after-networking.conf` | `SDN/Frr.pm`, `SDN/Dhcp/Dnsmasq.pm` (per-zone `dnsmasq@<zone>` instances), `SDN/Controllers/FaucetPlugin.pm` | facade calls; dnsmasq instances need an init-script equivalent (only with SDN DHCP) |
@@ -160,7 +162,7 @@ the dependencies as well.
 
 ## Suggested order
 
-1. Fix the pve-common regression (2): restore `PVE::Systemd::systemd_call`.
+1. Fix the pve-common regression (2): done, `PVE::Systemd::systemd_call` is restored.
 2. Build the 26 repos without init-system work (the "Packaging/UI only" table); pve-common and proxmox-perl-rs are already done.
 3. pve-cluster and pve-ha-manager (blocker 1): done, build them with their
    lsbservice profiles.
