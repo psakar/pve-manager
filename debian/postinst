@@ -98,15 +98,40 @@ update_ceph_conf() {
     # isn't available on all nodes for some reason
     /usr/share/pve-manager/helpers/pve-init-ceph-crash || true
 
-    if systemctl -q is-enabled "$UNIT" 2> /dev/null; then
+    if [ "$INIT_SYSTEM" = systemd ] && systemctl -q is-enabled "$UNIT" 2> /dev/null; then
         deb-systemd-invoke restart "$UNIT" || true
     fi
+}
+
+# Which init system this build integrates with, see the
+# pkg.pve-manager.lsbservice build profile: its 'lsbservice' variant ships LSB
+# init scripts instead of the systemd units.
+if [ -e /usr/lib/systemd/system/pve-guests.service ]; then
+    INIT_SYSTEM=systemd
+else
+    INIT_SYSTEM=lsbservice
+fi
+
+# daemons (re)started on install/upgrade, and the other services
+LSB_SERVICES="pvedaemon pveproxy spiceproxy pvestatd pvebanner pvescheduler"
+LSB_NO_RESTART_SERVICES="pvenetcommit pve-guests pve-sdn-commit pve-firewall-commit"
+
+# like 'systemctl reload-or-try-restart': only reload running services
+lsb_try_reload() {
+    for svc in "$@"; do
+        if invoke-rc.d --quiet "$svc" status >/dev/null 2>&1; then
+            invoke-rc.d "$svc" reload || true
+        fi
+    done
 }
 
 # Copied from dh_installtmpfiles/13.24.2
 if [ "$1" = "configure" ] || [ "$1" = "abort-upgrade" ] || [ "$1" = "abort-deconfigure" ] || [ "$1" = "abort-remove" ] ; then
        if [ -x "$(command -v systemd-tmpfiles)" ]; then
                systemd-tmpfiles ${DPKG_ROOT:+--root="$DPKG_ROOT"} --create pve-manager.conf || true
+       else
+               # see debian/tmpfiles, the lsbservice init scripts also create it on boot
+               install -d -m 0750 -o root -g www-data /run/pve
        fi
 fi
 
@@ -123,11 +148,15 @@ case "$1" in
     # the ExecStartPre doesn't triggers on service reload, so just in case
     pvecm updatecerts --silent || true
 
-    deb-systemd-invoke reload-or-try-restart pvedaemon.service || true
-    deb-systemd-invoke reload-or-try-restart pvestatd.service || true
-    deb-systemd-invoke reload-or-try-restart pveproxy.service || true
-    deb-systemd-invoke reload-or-try-restart spiceproxy.service || true
-    deb-systemd-invoke reload-or-try-restart pvescheduler.service || true
+    if [ "$INIT_SYSTEM" = systemd ]; then
+        deb-systemd-invoke reload-or-try-restart pvedaemon.service || true
+        deb-systemd-invoke reload-or-try-restart pvestatd.service || true
+        deb-systemd-invoke reload-or-try-restart pveproxy.service || true
+        deb-systemd-invoke reload-or-try-restart spiceproxy.service || true
+        deb-systemd-invoke reload-or-try-restart pvescheduler.service || true
+    else
+        lsb_try_reload pvedaemon pvestatd pveproxy spiceproxy pvescheduler
+    fi
 
     exit 0;;
 
@@ -143,27 +172,34 @@ case "$1" in
         pveam update || true
     fi
 
-    systemctl --system daemon-reload >/dev/null || true
-
-    # same as dh_systemd_enable (code copied)
-
     UNITS="pvedaemon.service pveproxy.service spiceproxy.service pvestatd.service pvebanner.service pvescheduler.service pve-daily-update.timer"
     NO_RESTART_UNITS="pvenetcommit.service pve-guests.service pve-sdn-commit.service pve-firewall-commit.service"
 
-    for unit in ${UNITS} ${NO_RESTART_UNITS}; do
-        deb-systemd-helper unmask "$unit" >/dev/null || true
+    if [ "$INIT_SYSTEM" = systemd ]; then
+        systemctl --system daemon-reload >/dev/null || true
 
-        # was-enabled defaults to true, so new installations run enable.
-        if deb-systemd-helper --quiet was-enabled "$unit"; then
-            # Enables the unit on first installation, creates new
-            # symlinks on upgrades if the unit file has changed.
-            deb-systemd-helper enable "$unit" >/dev/null || true
-        else
-            # Update the statefile to add new symlinks (if any), which need to be
-            # cleaned up on purge. Also remove old symlinks.
-            deb-systemd-helper update-state "$unit" >/dev/null || true
-        fi
-    done
+        # same as dh_systemd_enable (code copied)
+        for unit in ${UNITS} ${NO_RESTART_UNITS}; do
+            deb-systemd-helper unmask "$unit" >/dev/null || true
+
+            # was-enabled defaults to true, so new installations run enable.
+            if deb-systemd-helper --quiet was-enabled "$unit"; then
+                # Enables the unit on first installation, creates new
+                # symlinks on upgrades if the unit file has changed.
+                deb-systemd-helper enable "$unit" >/dev/null || true
+            else
+                # Update the statefile to add new symlinks (if any), which need to be
+                # cleaned up on purge. Also remove old symlinks.
+                deb-systemd-helper update-state "$unit" >/dev/null || true
+            fi
+        done
+    else
+        # same as dh_installinit: add the services to their default runlevels,
+        # update-rc.d keeps them disabled if the admin disabled them before
+        for svc in ${LSB_SERVICES} ${LSB_NO_RESTART_SERVICES}; do
+            update-rc.d "$svc" defaults >/dev/null || true
+        done
+    fi
 
     BETA_SOURCES="/etc/apt/sources.list.d/pve-test-for-beta.sources"
     if test -f "$BETA_SOURCES" && dpkg --compare-versions "$2" 'lt' '9.0.1' && dpkg --compare-versions "$2" 'gt' '9.0~~'; then
@@ -184,17 +220,30 @@ case "$1" in
     fi
 
     if test ! -e /proxmox_install_mode; then
-        # modeled after code generated by dh_start
-        for unit in ${UNITS}; do
-            if test -n "$2"; then
-                dh_action="reload-or-restart";
-            else
-                dh_action="start"
-            fi
-            if systemctl -q is-enabled "$unit"; then
-                deb-systemd-invoke $dh_action "$unit" || true
-            fi
-        done
+        if [ "$INIT_SYSTEM" = systemd ]; then
+            # modeled after code generated by dh_start
+            for unit in ${UNITS}; do
+                if test -n "$2"; then
+                    dh_action="reload-or-restart";
+                else
+                    dh_action="start"
+                fi
+                if systemctl -q is-enabled "$unit"; then
+                    deb-systemd-invoke $dh_action "$unit" || true
+                fi
+            done
+        else
+            # modeled after code generated by dh_installinit; invoke-rc.d skips
+            # services disabled in the current runlevel. The daemons' 'reload'
+            # is a graceful restart, which also starts them if they're stopped.
+            for svc in ${LSB_SERVICES}; do
+                if test -n "$2"; then
+                    invoke-rc.d "$svc" reload || true
+                else
+                    invoke-rc.d "$svc" start || true
+                fi
+            done
+        fi
     fi
 
     if test -n "$2" && dpkg --compare-versions "$2" 'lt' '9.0.4'; then
