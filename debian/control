@@ -83,7 +83,9 @@ Depends: apt (>= 1.5~),
          postfix | mail-transport-agent,
          proxmox-enterprise-support-keyring,
          proxmox-mail-forward,
-         proxmox-mini-journalreader (>= 1.7),
+# the journal only exists under systemd; the LSBService variant (e.g. for
+# Devuan) reads the syslog files instead, see debian/rules
+         proxmox-mini-journalreader (>= 1.7) <!pkg.pve-manager.lsbservice>,
          proxmox-termproxy (>= 2.1.0~),
          proxmox-widget-toolkit (>= 5.2.6),
          pve-cluster (>= 9.0.1),
@@ -98,7 +100,11 @@ Depends: apt (>= 1.5~),
          rsync,
          spiceterm,
          sqv,
-         systemd,
+# the LSBService variant ships LSB init scripts and a cron job instead of
+# systemd units and a timer, and needs a syslog daemon writing /var/log/syslog
+         systemd <!pkg.pve-manager.lsbservice>,
+         cron <pkg.pve-manager.lsbservice>,
+         rsyslog <pkg.pve-manager.lsbservice>,
          vncterm (>= 1.9.2~),
          wget,
          zstd,
