@@ -19,6 +19,14 @@ endif
 %:
 	dh $@
 
+ifeq ($(PVE_INIT_SYSTEM),lsbservice)
+override_dh_lintian:
+	dh_lintian
+	install -d debian/pve-manager/usr/share/lintian/overrides
+	cat debian/pve-manager.lintian-overrides.lsbservice \
+	    >>debian/pve-manager/usr/share/lintian/overrides/pve-manager
+endif
+
 override_dh_compress:
 	dh_compress -Xaplinfo.dat -Xtrustedkeys.gpg
 
