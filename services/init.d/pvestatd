@@ -17,6 +17,10 @@ DESC="PVE Status Daemon"
 DAEMON=/usr/bin/pvestatd
 PIDFILE=/run/pvestatd.pid
 
+# tell the daemon it's run by the init system, so that it acts directly
+# instead of asking the init system, i.e. running this script again
+export PVE_INIT_SCRIPT=1
+
 test -x $DAEMON || exit 0
 
 case "$1" in
