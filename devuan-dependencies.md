@@ -71,15 +71,17 @@ excalibur package lists.
    redirected to `/run/pve/ct-<vmid>.stderr`. Under LSB this needs a
    replacement, e.g. running `lxc-start` daemonized directly, with a cgroup set
    up like the LSBService scopes.
-4. **VM processes rely on systemd scopes and units beyond the facade:**
-   qemu-server stops `<vmid>.scope` and `pve-dbus-vmstate@<vmid>.service` via
-   `systemctl` (`src/PVE/QemuServer.pm:5704-5712`), and starts the D-Bus VM
-   state helper as a `Type=notify` unit that is `PartOf=` the VM's scope
-   (`src/PVE/QemuServer/DBusVMState.pm:71`). Done: creating the scope goes
-   through the facade (`PVE::Systemd::enter_systemd_scope`), the LSBService
-   backend now honors its `Slice=qemu.slice`, so the VM's cgroup is at
-   `qemu.slice/<vmid>.scope` as qemu-server expects (pve-common `cfababb`),
-   and changing its CPU limit/weight goes through the facade too (see 2).
+4. **Fixed: VM processes rely on systemd scopes and units beyond the facade:**
+   qemu-server stopped `<vmid>.scope` and reset `pve-dbus-vmstate@<vmid>.service`
+   via `systemctl` (`src/PVE/QemuServer.pm:5704-5712`), and started the D-Bus
+   VM state helper as a `Type=notify` unit (`src/PVE/QemuServer/DBusVMState.pm:71`).
+   Now: the LSBService backend honors the scope's `Slice=qemu.slice`
+   (pve-common `cfababb`); changing a VM's CPU limit/weight (see 2) and
+   cleaning up a leftover scope go through the facade (`set_scope_properties`,
+   `reset_failed`, `stop_scope`: pve-common `b5de93e`, `6f414bb`); without the
+   `pve-dbus-vmstate@` service, the helper is started directly in its own
+   scope in `qemu.slice`, waiting for its `READY=1` on a notify socket of
+   qemu-server's (qemu-server `0806802`).
 5. **Storage creates systemd mount and import units:** pve-storage's disk API
    writes `/etc/systemd/system/*.mount` units for directory storages and
    enables them (`src/PVE/API2/Disks/Directory.pm:216-401`), and enables
@@ -99,12 +101,12 @@ excalibur package lists.
 
 ### Need init-system work (units and/or code)
 
-7 repositories left; pve-cluster and pve-ha-manager moved to "Done" below.
+6 repositories left; pve-cluster, pve-ha-manager and qemu-server moved to "Done"
+below.
 
 | Repo | Needed packages (required by) | systemd units shipped | Direct systemd use | Work |
 |---|---|---|---|---|
 | **pve-container** | `pve-container` (pve-manager, pve-ha-manager) | `pve-container@.service`, `pve-container-debug@.service` (templated, one per CT) | `LXC.pm` (start via unit), `LXC/Setup.pm` (`PVE::Systemd::get_timezone`, already a facade wrapper) | **blocker 3** |
-| **qemu-server** | `qemu-server` (pve-manager, pve-ha-manager) | `qmeventd.service`, `pve-query-machine-capabilities.service`, `pve-dbus-vmstate@.service` | `QemuServer.pm`, `CGroup.pm`, `DBusVMState.pm`, `CPUConfig.pm` | **blocker 4** (scope properties done, see 2); stopping the scope and the D-Bus VM state helper, init script for qmeventd, one-shot for machine capabilities |
 | **pve-storage** | `libpve-storage-perl` (most PVE packages) | — | `API2/Disks/Directory.pm`, `API2/Disks/ZFS.pm` (mount/import units) | **blocker 5** (only the disk-management API; using existing storages is unaffected) |
 | **pve-firewall** | `pve-firewall` (pve-manager, pve-container, qemu-server, libpve-network-api-perl) | `pve-firewall.service`, `pvefw-logger.service` | `debian/postinst` (deb-systemd-*), `Firewall.pm` (reload pvefw-logger) | profile, 2 init scripts, postinst, facade call |
 | **pve-network** | `libpve-network-perl`, `libpve-network-api-perl` (pve-manager, pve-firewall) | drop-in `dnsmasq@.service.d/00-dnsmasq-after-networking.conf` | `SDN/Frr.pm`, `SDN/Dhcp/Dnsmasq.pm` (per-zone `dnsmasq@<zone>` instances), `SDN/Controllers/FaucetPlugin.pm` | facade calls; dnsmasq instances need an init-script equivalent (only with SDN DHCP) |
@@ -113,9 +115,9 @@ excalibur package lists.
 
 ### Done
 
-Both on their `feature/init-systems-refactoring` branches; built with their
+All on their `feature/init-systems-refactoring` branches; built with their
 `pkg.*.lsbservice` profiles, they ship LSB init scripts instead of the systemd
-units and don't call `systemctl` directly anymore. Neither was built as a real
+units and don't call `systemctl` directly anymore. None was built as a real
 package yet (Proxmox-only build dependencies); the debhelper wiring was checked
 with dummy packages, the boot/shutdown order with insserv, and the code paths
 on Devuan with OpenRC.
@@ -124,6 +126,7 @@ on Devuan with OpenRC.
 |---|---|---|---|---|
 | **pve-cluster** | `pve-cluster`, `libpve-cluster-perl`, `libpve-cluster-api-perl`, `libpve-notify-perl` | `pve-cluster` (pmxcfs; before corosync and cron, stops after corosync) | cluster create/join and service reloads via `PVE::InitSystem`; `pvecm` QDevice commands on remote nodes check for systemd themselves, `service`/`update-rc.d` otherwise | `9bf237a` profile, `176a7e3` init script, `ecbaca1` systemctl, `17590fe` libpve-common-perl (>= 9.2.3) |
 | **pve-ha-manager** | `pve-ha-manager` | `watchdog-mux` (backgrounded, output to `/var/log/watchdog-mux.log` with logrotate `copytruncate`, OOM score -1000), `pve-ha-crm`, `pve-ha-lrm` (`PVE_INIT_SCRIPT` marker) | shutdown/reboot detection via runlevel (blocker 6); watchdog-mux falls back to `sync()` without `journalctl --sync`; trigger restarts via `invoke-rc.d` | `36c292f` profile, `bccf1cd` init scripts, `a0c7c2c` systemd tools, `2f870f4` libpve-common-perl (>= 9.2.3), `3431f27` logrotate |
+| **qemu-server** | `qemu-server` | `qmeventd` (found by executable, no pid file; stops after pve-ha-lrm/pve-guests), `pve-query-machine-capabilities` (one-shot at boot, also creates `/run/qemu-server`); no `pve-dbus-vmstate@` unit | VM CPU limit/weight via `set_scope_properties`; leftover scope cleanup via `reset_failed`/`stop_scope`; dbus-vmstate helper started directly in its own scope with `Type=notify`-style readiness; units only installed for systemd (`PVE_INIT_SYSTEM`) | `545872a` CPU limit/weight + libpve-common-perl (>= 9.2.3), `17a759e` scope cleanup, `0806802` dbus-vmstate helper, `0fdd2f2` profile + init scripts |
 
 libpve-common-perl was bumped to 9.2.3 on its branch (`b935615`) for these
 versioned dependencies; pve-manager depends on it too (`a2253108`). 9.2.3 is a
@@ -175,7 +178,7 @@ the dependencies as well.
 3. pve-cluster and pve-ha-manager (blocker 1): done, build them with their
    lsbservice profiles.
 4. pve-firewall, pve-lxc-syscalld, lxc-pve: services needed at boot.
-5. qemu-server (4) and pve-container (3): running guests.
+5. qemu-server (4): done; pve-container (3): running containers.
 6. pve-storage (5), pve-network SDN.
 
 ## Limitations
