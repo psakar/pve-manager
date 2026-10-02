@@ -48,9 +48,8 @@ excalibur package lists.
    `feature/init-systems-refactoring` branches:
    `pkg.pve-cluster.lsbservice` (pve-cluster `9bf237a`) and
    `pkg.pve-ha-manager.lsbservice` (pve-ha-manager `36c292f`). With them, the
-   closure no longer contains `systemd`. This only makes the packages
-   installable; their LSB init scripts and `systemctl` replacements are still
-   open (see the table below).
+   closure no longer contains `systemd`. Both repos are now done, see the
+   "Done" table below.
 2. **Regression on the pve-common `feature/init-systems-refactoring` branch,
    independent of Devuan:** commit `007a738` ("Extract PVE::InitSystem facade")
    removed `PVE::Systemd::systemd_call`. qemu-server still calls it
@@ -77,10 +76,11 @@ excalibur package lists.
    `zfs-import@<pool>.service` for new ZFS pools (`src/PVE/API2/Disks/ZFS.pm:513-625`).
    Under LSB these would need `/etc/fstab` entries and ZFS's own import
    mechanism (`zfs-import-cache`/`zfs-import-scan` init scripts) instead.
-6. **HA shutdown detection reads systemd's job queue:** pve-ha-manager decides
-   between shutdown and reboot from `systemctl --full list-jobs`
-   (`src/PVE/HA/Env/PVE2.pm:132`). Under sysvinit it can use the runlevel (0/6),
-   as pve-manager's `pve-guests` init script does.
+6. **Fixed: HA shutdown detection reads systemd's job queue:** pve-ha-manager
+   decides between shutdown and reboot from `systemctl --full list-jobs`
+   (`src/PVE/HA/Env/PVE2.pm:132`). If not booted with systemd, it now uses the
+   runlevel the system switches to (0/6), as pve-manager's `pve-guests` init
+   script does (pve-ha-manager `a0c7c2c`).
 
 ## Repositories
 
@@ -89,10 +89,10 @@ excalibur package lists.
 
 ### Need init-system work (units and/or code)
 
+7 repositories left; pve-cluster and pve-ha-manager moved to "Done" below.
+
 | Repo | Needed packages (required by) | systemd units shipped | Direct systemd use | Work |
 |---|---|---|---|---|
-| **pve-cluster** | `pve-cluster`, `libpve-cluster-perl`, `libpve-cluster-api-perl`, `libpve-notify-perl` (most PVE packages) | `pve-cluster.service` (pmxcfs; before corosync and cron, `Conflicts=shutdown.target`) | `pvecm`, `Cluster/Setup.pm`, `API2/ClusterConfig.pm`: `systemctl restart/stop/start corosync pve-cluster` | profile done (blocker 1); init script for pmxcfs, facade calls |
-| **pve-ha-manager** | `pve-ha-manager` (pve-manager, pve-container, qemu-server) | `pve-ha-crm.service`, `pve-ha-lrm.service`, `watchdog-mux.service` | `Env/PVE2.pm` (`list-jobs`, see 6) | profile done (blocker 1); 3 init scripts, shutdown detection |
 | **pve-container** | `pve-container` (pve-manager, pve-ha-manager) | `pve-container@.service`, `pve-container-debug@.service` (templated, one per CT) | `LXC.pm` (start via unit), `LXC/Setup.pm` (`PVE::Systemd::get_timezone`, already a facade wrapper) | **blocker 3** |
 | **qemu-server** | `qemu-server` (pve-manager, pve-ha-manager) | `qmeventd.service`, `pve-query-machine-capabilities.service`, `pve-dbus-vmstate@.service` | `QemuServer.pm`, `CGroup.pm`, `DBusVMState.pm`, `CPUConfig.pm` | **regression 2**, **blocker 4**; init script for qmeventd, one-shot for machine capabilities |
 | **pve-storage** | `libpve-storage-perl` (most PVE packages) | — | `API2/Disks/Directory.pm`, `API2/Disks/ZFS.pm` (mount/import units) | **blocker 5** (only the disk-management API; using existing storages is unaffected) |
@@ -101,11 +101,30 @@ excalibur package lists.
 | **pve-lxc-syscalld** | `pve-lxc-syscalld` (pve-container) | `pve-lxc-syscalld.service` (from `.service.in`, `Type=notify`, `RuntimeDirectory=`) | `src/main.rs`: `sd_notify` | init script creating `/run/pve-lxc-syscalld`; `sd_notify` without `NOTIFY_SOCKET` should be a no-op, to verify |
 | **lxc** (lxc-pve) | `lxc-pve` (pve-container) | upstream lxc's `lxc.service`, `lxc-monitord.service`, `lxc-net.service` (installed via `dh_installsystemd` in `debian/rules`) | upstream (submodule, not analysed) | ship upstream lxc's sysvinit scripts (`config/init/sysvinit/`), like Debian's `lxc` package does |
 
+### Done
+
+Both on their `feature/init-systems-refactoring` branches; built with their
+`pkg.*.lsbservice` profiles, they ship LSB init scripts instead of the systemd
+units and don't call `systemctl` directly anymore. Neither was built as a real
+package yet (Proxmox-only build dependencies); the debhelper wiring was checked
+with dummy packages, the boot/shutdown order with insserv, and the code paths
+on Devuan with OpenRC.
+
+| Repo | Needed packages | Init scripts (replacing units) | systemd use replaced | Commits |
+|---|---|---|---|---|
+| **pve-cluster** | `pve-cluster`, `libpve-cluster-perl`, `libpve-cluster-api-perl`, `libpve-notify-perl` | `pve-cluster` (pmxcfs; before corosync and cron, stops after corosync) | cluster create/join and service reloads via `PVE::InitSystem`; `pvecm` QDevice commands on remote nodes check for systemd themselves, `service`/`update-rc.d` otherwise | `9bf237a` profile, `176a7e3` init script, `ecbaca1` systemctl, `17590fe` libpve-common-perl (>= 9.2.3) |
+| **pve-ha-manager** | `pve-ha-manager` | `watchdog-mux` (backgrounded, output to `/var/log/watchdog-mux.log` with logrotate `copytruncate`, OOM score -1000), `pve-ha-crm`, `pve-ha-lrm` (`PVE_INIT_SCRIPT` marker) | shutdown/reboot detection via runlevel (blocker 6); watchdog-mux falls back to `sync()` without `journalctl --sync`; trigger restarts via `invoke-rc.d` | `36c292f` profile, `bccf1cd` init scripts, `a0c7c2c` systemd tools, `2f870f4` libpve-common-perl (>= 9.2.3), `3431f27` logrotate |
+
+libpve-common-perl was bumped to 9.2.3 on its branch (`b935615`) for these
+versioned dependencies; pve-manager depends on it too (`a2253108`). 9.2.3 is a
+local version number, an upstream 9.2.3 without these changes would satisfy
+the dependencies as well.
+
 ### Packaging/UI only, or no init-system dependency
 
 | Repo | Needed packages | Notes |
 |---|---|---|
-| pve-common | `libpve-common-perl` | done: lsbservice profile (this branch) |
+| pve-common | `libpve-common-perl` | done: lsbservice profile, PVE::InitSystem (version 9.2.3 on its branch) |
 | proxmox-perl-rs | `libpve-rs-perl`, `libproxmox-rs-perl` | built; links `libsystemd.so.0` (available on Devuan), see proxmox-rs analysis |
 | proxmox-acme | `libproxmox-acme-perl`, `libproxmox-acme-plugins` | built; `systemctl` only in acme.sh deploy hooks for third-party services (haproxy, lighttpd, unifi), not used by PVE |
 | proxmox-backup | `proxmox-backup-client`, `proxmox-backup-file-restore` (libpve-storage-perl, pve-container) | systemd units and `systemctl`/`journalctl` are only in the **server** part; building the repo builds the server too, unless limited to the client packages |
@@ -142,13 +161,12 @@ excalibur package lists.
 ## Suggested order
 
 1. Fix the pve-common regression (2): restore `PVE::Systemd::systemd_call`.
-2. Build the 26 repos without init-system work, all of them but the 9 in the first table; pve-common and proxmox-perl-rs are already done.
-3. pve-cluster and pve-ha-manager: build them with their lsbservice profiles
-   (blocker 1, done), then add their init scripts; without them nothing
-   installs or starts.
+2. Build the 26 repos without init-system work (the "Packaging/UI only" table); pve-common and proxmox-perl-rs are already done.
+3. pve-cluster and pve-ha-manager (blocker 1): done, build them with their
+   lsbservice profiles.
 4. pve-firewall, pve-lxc-syscalld, lxc-pve: services needed at boot.
 5. qemu-server (4) and pve-container (3): running guests.
-6. pve-storage (5), pve-network SDN, pve-ha-manager shutdown detection (6).
+6. pve-storage (5), pve-network SDN.
 
 ## Limitations
 
