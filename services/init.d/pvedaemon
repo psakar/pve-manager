@@ -30,6 +30,12 @@ case "$1" in
     start)
         # see debian/tmpfiles, /run is a tmpfs
         install -d -m 0750 -o root -g www-data /run/pve
+        # starting a running daemon succeeds, as with systemctl start (LSB);
+        # the daemon's own start command fails then
+        if pidofproc -p $PIDFILE $DAEMON >/dev/null; then
+            log_action_msg "$DESC is already running"
+            exit 0
+        fi
         log_daemon_msg "Starting $DESC" "$NAME"
         $DAEMON start
         log_end_msg $?

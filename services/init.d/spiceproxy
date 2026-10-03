@@ -25,6 +25,12 @@ test -x $DAEMON || exit 0
 
 case "$1" in
     start)
+        # starting a running daemon succeeds, as with systemctl start (LSB);
+        # the daemon's own start command fails then
+        if pidofproc -p $PIDFILE $DAEMON >/dev/null; then
+            log_action_msg "$DESC is already running"
+            exit 0
+        fi
         log_daemon_msg "Starting $DESC" "$NAME"
         $DAEMON start
         log_end_msg $?
