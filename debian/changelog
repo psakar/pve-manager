@@ -1,3 +1,13 @@
+pve-manager (9.2.21+devuan3) trixie; urgency=medium
+
+  * LSB init script pve-guests: run startall/stopall with stdin from
+    /dev/null, as the unit does; at boot and shutdown stdin is the console
+    without being the controlling terminal, and the synchronous worker
+    failed taking it over ("failed to tcsetpgrp: Inappropriate ioctl for
+    device"), so no guest was started on boot or stopped on shutdown
+
+ -- Petr Sakař <petr.sakar@chare.eu>  Wed, 07 Oct 2026 08:17:11 +0200
+
 pve-manager (9.2.21+devuan2) trixie; urgency=medium
 
   * LSB init scripts: succeed when starting a running daemon, as LSB

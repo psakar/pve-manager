@@ -21,12 +21,17 @@
 
 STAMP=/run/pve-guests.started
 
+# pvesh runs startall/stopall as a synchronous worker, which takes over the
+# terminal when stdin is one; at boot and shutdown, stdin is the console
+# without being the controlling terminal, so that fails ("failed to
+# tcsetpgrp: Inappropriate ioctl for device"). The unit's stdin is /dev/null.
+
 test -x /usr/bin/pvesh || exit 0
 
 stop_guests() {
     log_action_msg "Stopping all PVE guests"
     /usr/bin/vzdump -stop || true
-    PVE_LOG_ID=pve-guests /usr/bin/pvesh --nooutput create /nodes/localhost/stopall
+    PVE_LOG_ID=pve-guests /usr/bin/pvesh --nooutput create /nodes/localhost/stopall </dev/null
     status=$?
     rm -f $STAMP
     return $status
@@ -37,7 +42,7 @@ case "$1" in
         [ -e $STAMP ] && exit 0
         /usr/share/pve-manager/helpers/pve-startall-delay || true
         log_action_msg "Starting PVE guests marked to start on boot"
-        PVE_LOG_ID=pve-guests /usr/bin/pvesh --nooutput create /nodes/localhost/startall
+        PVE_LOG_ID=pve-guests /usr/bin/pvesh --nooutput create /nodes/localhost/startall </dev/null
         status=$?
         touch $STAMP
         exit $status
