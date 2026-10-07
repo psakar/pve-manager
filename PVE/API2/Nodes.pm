@@ -1078,13 +1078,11 @@ __PACKAGE__->register_method({
         my $rpcenv = PVE::RPCEnvironment::get();
         my $user = $rpcenv->get_user();
 
-        # only exists with systemd's journal, not in the pkg.pve-manager.lsbservice
-        # build (e.g. for Devuan), where the system log is only available via the
-        # syslog endpoint
-        raise(
-            "reading the journal is not available on this node, use the syslog API instead\n",
-            code => HTTP_NOT_IMPLEMENTED,
-        ) if !-x '/usr/bin/mini-journalreader';
+        # mini-journalreader only exists with systemd's journal; in the
+        # pkg.pve-manager.lsbservice build (e.g. for Devuan) the init-system
+        # backend reads the syslog files, in mini-journalreader's plain format
+        return PVE::InitSystem::read_journal($param->%*)
+            if !-x '/usr/bin/mini-journalreader';
 
         my $cmd = ["/usr/bin/mini-journalreader", $param->{structured} ? "-J" : "-j"];
         push @$cmd, '-n', $param->{lastentries} if $param->{lastentries};

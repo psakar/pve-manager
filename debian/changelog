@@ -6,6 +6,11 @@ pve-manager (9.2.21+devuan3) trixie; urgency=medium
     failed taking it over ("failed to tcsetpgrp: Inappropriate ioctl for
     device"), so no guest was started on boot or stopped on shutdown
 
+  * journal API: without mini-journalreader, serve it from the syslog files
+    via PVE::InitSystem::read_journal instead of failing with 501, so the
+    web UI's node system log and service logs show the log; depend on
+    libpve-common-perl 9.2.3+devuan2
+
  -- Petr Sakař <petr.sakar@chare.eu>  Wed, 07 Oct 2026 08:17:11 +0200
 
 pve-manager (9.2.21+devuan2) trixie; urgency=medium
