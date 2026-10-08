@@ -402,6 +402,16 @@ __PACKAGE__->register_method({
     code => sub {
         my ($params) = @_;
 
+        # The pinning only takes effect through systemd-udevd, which reads the
+        # .link files. Without systemd as init (e.g. with the
+        # pkg.pve-manager.lsbservice build), eudev ignores them, so the
+        # renamed interfaces in /etc/network/interfaces.new and the SDN
+        # configuration would not exist after the reboot, leaving the node
+        # without network; same check as sd_booted(3)
+        die "interface name pinning needs systemd-udevd, but this system wasn't booted with"
+            . " systemd (eudev doesn't read .link files)\n"
+            if !-d '/run/systemd/system';
+
         my $iface = $params->{interface}; # undef means all.
         my $target_name = $params->{'target-name'};
 
