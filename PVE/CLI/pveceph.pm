@@ -160,6 +160,12 @@ __PACKAGE__->register_method({
     code => sub {
         my ($param) = @_;
 
+        # Ceph's packages only ship systemd units, so without systemd as init
+        # (e.g. with the pkg.pve-manager.lsbservice build) its daemons would
+        # never be started; same check as sd_booted(3)
+        die "Ceph needs systemd as init system, but this system wasn't booted with systemd\n"
+            if !-d '/run/systemd/system';
+
         my $cephver = $param->{version} || $default_ceph_version;
 
         my $available_ceph_releases = PVE::Ceph::Releases::get_all_available_ceph_releases();
