@@ -1,3 +1,11 @@
+pve-manager (9.2.21+devuan5) trixie; urgency=medium
+
+  * pve-network-interface-pinning generate: refuse without systemd as init;
+    eudev ignores the .link files, so the renamed interfaces it writes to
+    /etc/network/interfaces.new would not exist after the reboot
+
+ -- Petr Sakař <petr.sakar@chare.eu>  Fri, 09 Oct 2026 00:44:47 +0200
+
 pve-manager (9.2.21+devuan4) trixie; urgency=medium
 
   * lsbservice variant: don't install the MAC address policy drop-in for
