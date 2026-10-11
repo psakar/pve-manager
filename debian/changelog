@@ -1,3 +1,11 @@
+pve-manager (9.2.21+devuan6) trixie; urgency=medium
+
+  * pve-guests init script: mark the guests started only after startall
+    succeeded, so that a failed start can be retried; don't provide the
+    pve-manager facility, which nothing uses
+
+ -- Petr Sakař <petr.sakar@chare.eu>  Sun, 11 Oct 2026 20:02:31 +0200
+
 pve-manager (9.2.21+devuan5) trixie; urgency=medium
 
   * pve-network-interface-pinning generate: refuse without systemd as init;
