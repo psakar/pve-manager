@@ -1,6 +1,6 @@
 #!/bin/sh
 ### BEGIN INIT INFO
-# Provides:          pve-guests pve-manager
+# Provides:          pve-guests
 # Required-Start:    $remote_fs $network $syslog pveproxy pvestatd spiceproxy
 # Required-Stop:     $remote_fs $network $syslog pveproxy pvestatd spiceproxy
 # Should-Start:      pve-firewall lxc pve-ha-crm pve-ha-lrm
