@@ -42,10 +42,11 @@ case "$1" in
         [ -e $STAMP ] && exit 0
         /usr/share/pve-manager/helpers/pve-startall-delay || true
         log_action_msg "Starting PVE guests marked to start on boot"
-        PVE_LOG_ID=pve-guests /usr/bin/pvesh --nooutput create /nodes/localhost/startall </dev/null
-        status=$?
+        # as with the unit (Type=oneshot, RemainAfterExit=yes), only a
+        # successful start counts as started: after a failure, 'status'
+        # reports it stopped and 'start' tries again
+        PVE_LOG_ID=pve-guests /usr/bin/pvesh --nooutput create /nodes/localhost/startall </dev/null || exit $?
         touch $STAMP
-        exit $status
         ;;
     stop)
         case "$(/sbin/runlevel 2>/dev/null | cut -d' ' -f2)" in
