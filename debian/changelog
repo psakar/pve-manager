@@ -1,3 +1,11 @@
+pve-manager (9.2.21+devuan7) trixie; urgency=medium
+
+  * udev rule for pinning virtual function names: only assign a name the
+    helper printed; eudev otherwise tried to rename every network interface
+    to an empty name and logged an error for each
+
+ -- Petr Sakař <petr.sakar@chare.eu>  Tue, 13 Oct 2026 09:51:19 +0200
+
 pve-manager (9.2.21+devuan6) trixie; urgency=medium
 
   * pve-guests init script: mark the guests started only after startall
