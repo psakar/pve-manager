@@ -1,3 +1,43 @@
+pve-manager (9.2.26+devuan1) trixie; urgency=medium
+
+  * build for systemd-free derivatives like Devuan (sysvinit or OpenRC),
+    with the init-system changes of the feature/init-systems-refactoring
+    branch; built with the pkg.pve-manager.lsbservice profile
+
+  * LSB init scripts: succeed when starting a running daemon, as LSB
+    requires, instead of failing upgrades through the maintainer scripts
+
+  * journal API: without mini-journalreader, serve it from the syslog files
+    via PVE::InitSystem::read_journal instead of failing with 501, so the
+    web UI's node system log and service logs show the log
+
+  * LSB init script pve-guests: run startall/stopall with stdin from
+    /dev/null, as the unit does; at boot and shutdown stdin is the console
+    without being the controlling terminal, and the synchronous worker
+    failed taking it over ("failed to tcsetpgrp: Inappropriate ioctl for
+    device"), so no guest was started on boot or stopped on shutdown
+
+  * pve-guests init script: mark the guests started only after startall
+    succeeded, so that a failed start can be retried; don't provide the
+    pve-manager facility, which nothing uses
+
+  * pveceph install: refuse without systemd as init, as Ceph's packages
+    only ship systemd units and its daemons would never be started
+
+  * pve-network-interface-pinning generate: refuse without systemd as init;
+    eudev ignores the .link files, so the renamed interfaces it writes to
+    /etc/network/interfaces.new would not exist after the reboot
+
+  * lsbservice variant: don't install the MAC address policy drop-in for
+    systemd's 99-default.link; eudev reads no .link files and leaves bridges
+    their ports' MAC address anyway
+
+  * udev rule for pinning virtual function names: only assign a name the
+    helper printed; eudev otherwise tried to rename every network interface
+    to an empty name and logged an error for each
+
+ -- Petr Sakař <petr.sakar@chare.eu>  Tue, 10 Nov 2026 20:38:18 +0100
+
 pve-manager (9.2.26) trixie; urgency=medium
 
   * api: backup: extract config: also allow it with the Datastore.Allocate
